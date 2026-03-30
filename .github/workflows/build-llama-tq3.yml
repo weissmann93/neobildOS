@@ -42,6 +42,8 @@ jobs:
         run: |
           cd llama.cpp
           cmake \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCMAKE_C_FLAGS="-O3 -march=armv8-a+dotprod+i8mm" \
@@ -49,6 +51,13 @@ jobs:
             -DGGML_OPENMP=OFF \
             -DGGML_NATIVE=OFF \
             -DGGML_LLAMAFILE=OFF \
+            -DGGML_AVX=OFF \
+            -DGGML_AVX2=OFF \
+            -DGGML_AVX512=OFF \
+            -DGGML_FMA=OFF \
+            -DGGML_F16C=OFF \
+            -DGGML_SSE42=OFF \
+            -DGGML_BMI2=OFF \
             -DLLAMA_BUILD_TOOLS=OFF \
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_MMAP=OFF \
