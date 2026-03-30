@@ -57,14 +57,47 @@ jobs:
             -G Ninja \
             -B build
 
+      - name: List available ninja targets
+        run: |
+          echo "## Available ninja targets" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cd llama.cpp && ninja -C build -t targets all 2>/dev/null | head -50 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
       - name: Build
         run: |
           cd llama.cpp
-          cmake --build build --target llama-server llama-bench -j$(nproc)
+
+          # Detect server target
+          if ninja -C build -t targets all 2>/dev/null | grep -q "^llama-server:"; then
+            SERVER_TARGET="llama-server"
+          else
+            SERVER_TARGET="server"
+          fi
+          echo "SERVER_TARGET=$SERVER_TARGET" >> $GITHUB_ENV
+          echo "Building server target: $SERVER_TARGET"
+          cmake --build build --target "$SERVER_TARGET" -j$(nproc)
+
+          # Detect bench target (optional — missing bench does not fail the build)
+          if ninja -C build -t targets all 2>/dev/null | grep -q "^llama-bench:"; then
+            BENCH_TARGET="llama-bench"
+          elif ninja -C build -t targets all 2>/dev/null | grep -q "^llama-benchmark:"; then
+            BENCH_TARGET="llama-benchmark"
+          else
+            BENCH_TARGET=""
+          fi
+          echo "BENCH_TARGET=$BENCH_TARGET" >> $GITHUB_ENV
+          if [ -n "$BENCH_TARGET" ]; then
+            echo "Building bench target: $BENCH_TARGET"
+            cmake --build build --target "$BENCH_TARGET" -j$(nproc) || true
+          else
+            echo "No bench target found — skipping"
+          fi
 
       - name: Check TQ3_0 support
         run: |
-          if strings llama.cpp/build/bin/llama-server | grep -q "tq3_0"; then
+          SERVER_BIN=$(find llama.cpp/build/bin/ -type f -executable -name "*server*" | head -1)
+          if [ -n "$SERVER_BIN" ] && strings "$SERVER_BIN" | grep -q "tq3_0"; then
             echo "TQ3_0_PRESENT=true" >> $GITHUB_ENV
           else
             echo "TQ3_0_PRESENT=false" >> $GITHUB_ENV
@@ -73,14 +106,17 @@ jobs:
       - name: Package
         run: |
           mkdir -p release
-          cp llama.cpp/build/bin/llama-server release/
-          cp llama.cpp/build/bin/llama-bench release/
+          find llama.cpp/build/bin/ -type f -executable | while read bin; do
+            cp "$bin" release/
+          done
           cat > release/BUILD_INFO.txt << MANIFEST
           neobildOS llama.cpp build
           Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
           Source: ${{ env.LLAMA_SOURCE }}
           TQ3_0: ${{ env.TQ3_0_PRESENT }}
           Target: aarch64 ARMv8-A+dotprod+i8mm
+          Server target: ${{ env.SERVER_TARGET }}
+          Bench target: ${{ env.BENCH_TARGET }}
           MANIFEST
           tar -czf llama-tq3-arm64.tar.gz -C release .
 
