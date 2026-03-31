@@ -1,0 +1,74 @@
+name: build-mnn-turboquant-arm64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout neobildOS
+        uses: actions/checkout@v4
+
+      - name: Clone MNN master
+        run: |
+          git clone --depth=1 https://github.com/alibaba/MNN MNN
+          cd MNN && git log --oneline -3
+          git log --oneline | grep -q "244f5d1" && echo "TQ_PRESENT=true" >> $GITHUB_ENV || echo "TQ_PRESENT=false" >> $GITHUB_ENV
+
+      - name: Install ARM64 toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake ninja-build
+
+      - name: Build MNN + llm_demo (ARM64 Termux)
+        run: |
+          cd MNN
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_C_FLAGS="-O3 -march=armv8-a+dotprod+i8mm" \
+            -DCMAKE_CXX_FLAGS="-O3 -march=armv8-a+dotprod+i8mm" \
+            -DMNN_BUILD_LLM=ON \
+            -DMNN_LOW_MEMORY=ON \
+            -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
+            -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
+            -DMNN_ARM82=ON \
+            -DMNN_OPENCL=OFF \
+            -DMNN_BUILD_TOOLS=OFF \
+            -DMNN_BUILD_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -G Ninja
+          cmake --build . --target MNN mnn_llm -j$(nproc)
+
+      - name: Verify + package
+        run: |
+          mkdir -p release
+          find MNN/build -type f -executable | while read f; do
+            cp "$f" release/ 2>/dev/null || true
+          done
+          find MNN/build -name "*.so*" | while read f; do
+            cp "$f" release/ 2>/dev/null || true
+          done
+          cat > release/BUILD_INFO.txt << MANIFEST
+          neobildOS MNN TurboQuant build
+          Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          TQ_IN_MNN: ${{ env.TQ_PRESENT }}
+          attention_mode=12: FlashAttention + TQ3 (3-bit KV)
+          attention_mode=14: FlashAttention + TQ4 (4-bit KV, recommended)
+          Target: aarch64 ARMv8-A+dotprod+i8mm
+          MANIFEST
+          tar -czf mnn-tq-arm64.tar.gz -C release .
+          echo "Archive: $(du -sh mnn-tq-arm64.tar.gz)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnn-tq-arm64
+          path: mnn-tq-arm64.tar.gz
+          retention-days: 30
