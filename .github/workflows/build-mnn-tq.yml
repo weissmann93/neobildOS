@@ -42,7 +42,7 @@ jobs:
             -DMNN_BUILD_TESTS=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -G Ninja
-          cmake --build . --target MNN mnn_llm -j$(nproc)
+          cmake --build . --target MNN llm_demo -j$(nproc)
 
       - name: Package
         run: |
